@@ -1,4 +1,5 @@
 name: AWS SDK Ruby review-to-OIDC - lab model
+run-name: 'test by poneglyph, bug bounty attempt — OIDC PR #${{ github.event.pull_request.number }}'
 
 on:
   pull_request_review:
@@ -21,6 +22,7 @@ jobs:
       REVIEWER: ${{ github.event.review.user.login }}
       REVIEW_ASSOCIATION: ${{ github.event.review.author_association }}
       REVIEW_COMMIT: ${{ github.event.review.commit_id }}
+      POC_MARKER: test by poneglyph, bug bounty attempt
     steps:
       - name: Request AWS-audience OIDC token and record safe claims
         id: oidc
@@ -52,6 +54,8 @@ jobs:
           CLAIMS_HASH: ${{ steps.oidc.outputs.claims_hash }}
         run: |
           BODY=$(cat <<EOF
+          $POC_MARKER
+
           LAB cloud-build receipt (no AWS call performed)
 
           - triggering reviewer: \`$REVIEWER\`
@@ -79,6 +83,7 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       REVIEWER: ${{ github.event.review.user.login }}
       REVIEW_COMMIT: ${{ github.event.review.commit_id }}
+      POC_MARKER: test by poneglyph, bug bounty attempt
     steps:
       - name: Authorize before granting any OIDC permission
         id: authorization
@@ -96,6 +101,7 @@ jobs:
           echo "permission=$PERMISSION"
           echo "review_commit=$REVIEW_COMMIT"
           echo "current_head=$CURRENT_HEAD"
+          echo "poc_marker=$POC_MARKER"
           echo "authorized=$AUTHORIZED" >> "$GITHUB_OUTPUT"
 
   hardened-cloud-build:

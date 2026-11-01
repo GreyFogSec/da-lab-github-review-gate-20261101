@@ -1,4 +1,5 @@
 name: Internal consumer canary - lab model
+run-name: test by poneglyph, bug bounty attempt — internal consumer
 
 on:
   repository_dispatch:
@@ -20,11 +21,13 @@ jobs:
       REVIEW_COMMIT: ${{ github.event.client_payload.review_commit }}
       CURRENT_HEAD: ${{ github.event.client_payload.current_head }}
       DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
+      POC_MARKER: ${{ github.event.client_payload.poc_marker }}
       LAB_CANARY: ${{ secrets.LAB_CANARY }}
     steps:
       - name: Write canary hash to an isolated evidence branch
         run: |
           test -n "$LAB_CANARY"
+          test "$POC_MARKER" = 'test by poneglyph, bug bounty attempt'
           CANARY_HASH=$(printf '%s' "$LAB_CANARY" | sha256sum | cut -d' ' -f1)
           BRANCH="lab-evidence-${GITHUB_RUN_ID}"
           BASE_SHA=$(gh api "repos/$SOURCE_REPO/git/ref/heads/main" --jq '.object.sha')
@@ -39,18 +42,21 @@ jobs:
             --arg review_commit "$REVIEW_COMMIT" \
             --arg current_head "$CURRENT_HEAD" \
             --arg deployment_id "$DEPLOYMENT_ID" \
-            '{canary_hash:$canary_hash,pr_number:$pr_number,reviewer:$reviewer,review_association:$association,review_commit:$review_commit,current_head:$current_head,deployment_id:$deployment_id}')
+            --arg poc_marker "$POC_MARKER" \
+            '{poc_marker:$poc_marker,canary_hash:$canary_hash,pr_number:$pr_number,reviewer:$reviewer,review_association:$association,review_commit:$review_commit,current_head:$current_head,deployment_id:$deployment_id}')
           CONTENT=$(printf '%s\n' "$DOCUMENT" | base64 -w0)
           gh api --method PUT "repos/$SOURCE_REPO/contents/EVIDENCE/review-gate-${GITHUB_RUN_ID}.json" \
-            -f 'message=LAB: record outsider-review authorization effect' \
+            -f "message=$POC_MARKER: record outsider-review authorization effect" \
             -f "content=$CONTENT" \
             -f "branch=$BRANCH" >/dev/null
           echo "evidence_branch=$BRANCH"
+          echo "poc_marker=$POC_MARKER"
           echo "canary_sha256=$CANARY_HASH"
 
       - name: Mark controlled deployment successful
         run: |
           gh api --method POST "repos/$SOURCE_REPO/deployments/$DEPLOYMENT_ID/statuses" \
             -f state=success \
-            -f description='LAB: internal consumer wrote verified canary hash' >/dev/null
+            -f "description=$POC_MARKER: internal consumer wrote verified canary hash" >/dev/null
+          echo "poc_marker=$POC_MARKER"
           echo "deployment_status=success"

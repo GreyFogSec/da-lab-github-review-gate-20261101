@@ -1,4 +1,5 @@
 name: Lab baseline check
+run-name: 'test by poneglyph, bug bounty attempt — baseline PR #${{ github.event.pull_request.number }}'
 
 on:
   pull_request:
@@ -17,5 +18,6 @@ jobs:
         run: |
           test -n "$HEAD_SHA"
           test -n "$HEAD_REPOSITORY"
+          echo 'poc_marker=test by poneglyph, bug bounty attempt'
           echo "baseline_sha=$HEAD_SHA"
           echo "baseline_head_repository=$HEAD_REPOSITORY"
