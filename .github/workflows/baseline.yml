@@ -1,0 +1,21 @@
+name: Lab baseline check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lab-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record immutable PR identity
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          test -n "$HEAD_SHA"
+          test -n "$HEAD_REPOSITORY"
+          echo "baseline_sha=$HEAD_SHA"
+          echo "baseline_head_repository=$HEAD_REPOSITORY"

@@ -1,0 +1,56 @@
+name: Internal consumer canary - lab model
+
+on:
+  repository_dispatch:
+    types: [lab-internal-sync]
+
+permissions:
+  contents: write
+  deployments: write
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+      REVIEWER: ${{ github.event.client_payload.reviewer }}
+      REVIEW_ASSOCIATION: ${{ github.event.client_payload.review_association }}
+      REVIEW_COMMIT: ${{ github.event.client_payload.review_commit }}
+      CURRENT_HEAD: ${{ github.event.client_payload.current_head }}
+      DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
+      LAB_CANARY: ${{ secrets.LAB_CANARY }}
+    steps:
+      - name: Write canary hash to an isolated evidence branch
+        run: |
+          test -n "$LAB_CANARY"
+          CANARY_HASH=$(printf '%s' "$LAB_CANARY" | sha256sum | cut -d' ' -f1)
+          BRANCH="lab-evidence-${GITHUB_RUN_ID}"
+          BASE_SHA=$(gh api "repos/$SOURCE_REPO/git/ref/heads/main" --jq '.object.sha')
+          gh api --method POST "repos/$SOURCE_REPO/git/refs" \
+            -f "ref=refs/heads/$BRANCH" \
+            -f "sha=$BASE_SHA" >/dev/null
+          DOCUMENT=$(jq -n \
+            --arg canary_hash "$CANARY_HASH" \
+            --arg pr_number "$PR_NUMBER" \
+            --arg reviewer "$REVIEWER" \
+            --arg association "$REVIEW_ASSOCIATION" \
+            --arg review_commit "$REVIEW_COMMIT" \
+            --arg current_head "$CURRENT_HEAD" \
+            --arg deployment_id "$DEPLOYMENT_ID" \
+            '{canary_hash:$canary_hash,pr_number:$pr_number,reviewer:$reviewer,review_association:$association,review_commit:$review_commit,current_head:$current_head,deployment_id:$deployment_id}')
+          CONTENT=$(printf '%s\n' "$DOCUMENT" | base64 -w0)
+          gh api --method PUT "repos/$SOURCE_REPO/contents/EVIDENCE/review-gate-${GITHUB_RUN_ID}.json" \
+            -f 'message=LAB: record outsider-review authorization effect' \
+            -f "content=$CONTENT" \
+            -f "branch=$BRANCH" >/dev/null
+          echo "evidence_branch=$BRANCH"
+          echo "canary_sha256=$CANARY_HASH"
+
+      - name: Mark controlled deployment successful
+        run: |
+          gh api --method POST "repos/$SOURCE_REPO/deployments/$DEPLOYMENT_ID/statuses" \
+            -f state=success \
+            -f description='LAB: internal consumer wrote verified canary hash' >/dev/null
+          echo "deployment_status=success"

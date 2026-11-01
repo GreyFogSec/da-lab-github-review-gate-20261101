@@ -1,0 +1,116 @@
+name: Merge Contribution to Internal - lab model
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+jobs:
+  vulnerable-gate:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      deployments: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+      REVIEWER: ${{ github.event.review.user.login }}
+      REVIEW_ASSOCIATION: ${{ github.event.review.author_association }}
+      REVIEW_COMMIT: ${{ github.event.review.commit_id }}
+    steps:
+      - name: Record identities without authorizing them
+        id: identity
+        run: |
+          CURRENT_HEAD=$(gh api "repos/$SOURCE_REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+          echo "reviewer=$REVIEWER"
+          echo "review_association=$REVIEW_ASSOCIATION"
+          echo "review_commit=$REVIEW_COMMIT"
+          echo "current_head=$CURRENT_HEAD"
+
+      - name: Create privileged staging deployment
+        id: deployment
+        env:
+          CURRENT_HEAD: ${{ steps.identity.outputs.current_head }}
+        run: |
+          RESPONSE=$(jq -n \
+            --arg ref "$CURRENT_HEAD" \
+            --arg description "LAB: approval by $REVIEWER ($REVIEW_ASSOCIATION) for PR $PR_NUMBER" \
+            '{ref:$ref,environment:"staging",description:$description,auto_merge:false,required_contexts:[]}' \
+            | gh api --method POST "repos/$SOURCE_REPO/deployments" --input -)
+          DEPLOYMENT_ID=$(jq -r '.id' <<<"$RESPONSE")
+          test "$DEPLOYMENT_ID" != "null"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          gh api --method POST "repos/$SOURCE_REPO/deployments/$DEPLOYMENT_ID/statuses" \
+            -f state=in_progress \
+            -f description='LAB: dispatched by vulnerable review gate' >/dev/null
+          echo "deployment_id=$DEPLOYMENT_ID"
+
+      - name: Enable auto-merge without merging protected main
+        run: |
+          gh pr merge "$PR_NUMBER" --auto --squash --repo "$SOURCE_REPO"
+          echo "auto_merge_requested=true"
+
+      - name: Dispatch bounded internal-consumer model
+        env:
+          CURRENT_HEAD: ${{ steps.identity.outputs.current_head }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+        run: |
+          gh api --method POST "repos/$SOURCE_REPO/dispatches" \
+            -f event_type=lab-internal-sync \
+            -f "client_payload[pr_number]=$PR_NUMBER" \
+            -f "client_payload[reviewer]=$REVIEWER" \
+            -f "client_payload[review_association]=$REVIEW_ASSOCIATION" \
+            -f "client_payload[review_commit]=$REVIEW_COMMIT" \
+            -f "client_payload[current_head]=$CURRENT_HEAD" \
+            -f "client_payload[deployment_id]=$DEPLOYMENT_ID"
+          echo "repository_dispatch_sent=true"
+
+  hardened-gate:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_REPO: ${{ github.repository }}
+      REVIEWER: ${{ github.event.review.user.login }}
+      REVIEW_COMMIT: ${{ github.event.review.commit_id }}
+    steps:
+      - name: Require live reviewer permission and exact reviewed revision
+        id: authorization
+        run: |
+          PERMISSION=$(gh api "repos/$SOURCE_REPO/collaborators/$REVIEWER/permission" --jq '.permission' 2>/dev/null || echo none)
+          CURRENT_HEAD=$(gh api "repos/$SOURCE_REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          AUTHORIZED=false
+          case "$PERMISSION" in
+            admin|maintain|write)
+              if [ "$REVIEW_COMMIT" = "$CURRENT_HEAD" ]; then
+                AUTHORIZED=true
+              fi
+              ;;
+          esac
+          echo "permission=$PERMISSION"
+          echo "review_commit=$REVIEW_COMMIT"
+          echo "current_head=$CURRENT_HEAD"
+          echo "authorized=$AUTHORIZED" >> "$GITHUB_OUTPUT"
+
+      - name: Hardened privileged sink negative control
+        if: steps.authorization.outputs.authorized == 'true'
+        run: |
+          echo 'ERROR: outsider unexpectedly reached the hardened sink' >&2
+          exit 1
+
+      - name: Confirm rejection
+        if: steps.authorization.outputs.authorized != 'true'
+        run: echo 'hardened_sink_reached=false'
