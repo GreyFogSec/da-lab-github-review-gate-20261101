@@ -1,0 +1,10 @@
+{
+  "poc_marker": "test by poneglyph, bug bounty attempt",
+  "canary_hash": "8d0eab1882b3101a64678158eb625f6be0a1c068ad0c07d2b0db562465b83cec",
+  "pr_number": "3",
+  "reviewer": "poneglyph23",
+  "review_association": "NONE",
+  "review_commit": "5c9123abe178a565140dd82882a2fa8d81c99485",
+  "current_head": "5c9123abe178a565140dd82882a2fa8d81c99485",
+  "deployment_id": "7480587161"
+}
